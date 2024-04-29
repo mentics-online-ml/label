@@ -3,7 +3,7 @@ use std::time::Duration;
 use intervals::{Closed, Interval};
 use series_store::SeriesReader;
 use kv_store::*;
-use shared_types::{Event, Inference, Inferred, Logger, StdoutLogger};
+use shared_types::{Event, Label, Labelled, Logger, StdoutLogger};
 
 // TODO: When it first comes up, check if there are enough messages in series-store in the past to fill the buffer.
 
@@ -17,14 +17,14 @@ async fn main() -> anyhow::Result<()> {
     let store = KVStore::new().await?;
     let logger = StdoutLogger();
 
-    let label = Label::new(Box::new(logger), reader, store, range).await?;
+    let label = RunLabel::new(Box::new(logger), reader, store, range).await?;
 
     label.run().await?;
 
     Ok(())
 }
 
-struct Label {
+struct RunLabel {
     reader: SeriesReader,
     store: KVStore,
     logger: Box<dyn Logger>,
@@ -32,10 +32,10 @@ struct Label {
     max_labelled_event_id: u64,
 }
 
-impl Label {
+impl RunLabel {
     async fn new(logger: Box<dyn Logger>, reader: SeriesReader, store: KVStore, range: Closed<Duration>) -> anyhow::Result<Self> {
         let max_labelled_event_id = store.max_labelled_event_id(CURRENT_VERSION).await?;
-        Ok(Label { logger, reader, store, range, max_labelled_event_id })
+        Ok(RunLabel { logger, reader, store, range, max_labelled_event_id })
     }
 
     // Get the most recent label so we know where to continue processing.
@@ -56,9 +56,9 @@ impl Label {
         println!("Processing event {:?}", event);
         // TODO: buffer
         // TODO: ensure processing starts at < max_event_id
-        let label = Labelled { id: event.id, timestamp: shared_types::now(), inference: Inference::default() };
-        self.store.write_label(&inf).await.map_err(|e| {
-            self.logger.log(format!("Error inserting inferred {:?}", &inf));
+        let labeld = Labelled { id: event.id, timestamp: shared_types::now(), label: Label::default() };
+        let _ = self.store.write_label(&labeld).await.map_err(|e| {
+            self.logger.log(format!("Error {:?} inserting inferred {:?}", &e, &labeld));
         });
     }
 }
