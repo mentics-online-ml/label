@@ -56,9 +56,9 @@ impl Label {
         println!("Processing event {:?}", event);
         // TODO: buffer
         // TODO: ensure processing starts at < max_event_id
-        // let label = Labelled { id: event.id, timestamp: shared_types::now(), inference: Inference::default() };
-        // self.store.write_label(&inf).await.map_err(|e| {
-        //     self.logger.log(format!("Error inserting inferred {:?}", &inf));
-        // });
+        let label = Labelled { id: event.id, timestamp: shared_types::now(), inference: Inference::default() };
+        self.store.write_label(&inf).await.map_err(|e| {
+            self.logger.log(format!("Error inserting inferred {:?}", &inf));
+        });
     }
 }
