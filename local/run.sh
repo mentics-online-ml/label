@@ -12,4 +12,4 @@ cd "$BASE_DIR"
 
 RUST_BACKTRACE=1 cargo run
 
-# docker run -e TRADIER_API_KEY=`cat ~/.tradier_api_key` ghcr.io/mentics-ml-demo/ingest:latest
+# docker run -e TRADIER_API_KEY=`cat ~/.tradier_api_key` ghcr.io/mentics-online-ml/ingest:latest
