@@ -17,3 +17,4 @@ series-store = { path = "../series-store" }
 # kv-store = { git = "https://github.com/mentics-online-ml/kv-store.git", branch = "main" }
 kv-store = { path = "../kv-store" }
 intervals = "2.1.0"
+serde_json = "1.0.117"
