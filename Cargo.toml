@@ -18,3 +18,4 @@ series-store = { path = "../series-store" }
 kv-store = { path = "../kv-store" }
 intervals = "2.1.0"
 serde_json = "1.0.117"
+chrono = "0.4.38"

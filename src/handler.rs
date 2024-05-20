@@ -1,33 +1,32 @@
 use std::{cmp::min, collections::VecDeque};
 
-use shared_types::*;
+use chrono::NaiveDate;
+use shared_types::{util::{to_date, valid_time_and_date}, *};
 use series_store::*;
 
 use crate::checks::Check;
 
 pub(crate) struct HandleEvents<C> {
-    pub(crate) start_ts: Timestamp,
-    pub(crate) base: QuoteEvent,
+    // TODO: maybe store this in UTC if we store a proper calendar of market times
     pub(crate) checks: Vec<C>,
+    pub(crate) base: QuoteEvent,
+    pub(crate) base_date: NaiveDate,
+    pub(crate) events: VecDeque<QuoteEvent>,
     pub(crate) complete: Vec<C>,
-    pub(crate) events: VecDeque<QuoteEvent>
 }
 
 impl<C: Check> HandleEvents<C> {
     pub(crate) fn new(checks: Vec<C>, base: QuoteEvent) -> Self {
-        let start_ts = min(base.biddate, base.askdate);
-        // Self { i: 0, base, start_ts, events: VecDeque::new(), checks, complete: Vec::new() }
-        Self { checks, base, start_ts, events: VecDeque::new(), complete: Vec::new() }
+        let base_date = to_date(&base);
+        Self { checks, base, base_date, events: VecDeque::new(), complete: Vec::new() }
     }
 
     pub(crate) fn init_next(&mut self) {
         assert!(self.checks.is_empty());
 
-        // TODO: replace unwraps?
-        // base is right before the back event
-        // assert!(self.events.front().unwrap().event_id == self.base.event_id);
-        self.base = self.events.pop_front().unwrap();
-        self.start_ts = min(self.base.biddate, self.base.askdate);
+        // TODO: replace unwrap?
+        let new_base = self.events.pop_front().unwrap();
+        self.use_base(new_base);
         // println!("init_next base: {:?}", self.base);
 
         self.checks.append(&mut self.complete);
@@ -39,6 +38,11 @@ impl<C: Check> HandleEvents<C> {
         for event in self.events.iter() {
             Self::proc_event(&mut self.checks, &mut self.complete, &self.base, event);
         }
+    }
+
+    fn use_base(&mut self, new_base: QuoteEvent) {
+        self.base = new_base;
+        self.base_date = to_date(&self.base);
     }
 
     pub(crate) fn is_done(&self) -> bool {
@@ -65,9 +69,7 @@ impl<C: Check> HandleEvents<C> {
 
 impl<C: Check> EventHandler<QuoteEvent> for HandleEvents<C> {
     fn handle(&mut self, quote: QuoteEvent) -> bool {
-        // TODO: check within valid trading time
-        // If more than a day has passed, too long.
-        if quote.biddate - self.start_ts > 8*60*60*1000 {
+        if !valid_time_and_date(&quote, self.base_date) {
             return false;
         }
 
