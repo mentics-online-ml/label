@@ -18,6 +18,7 @@ pub(crate) struct Labeler<C> {
 impl<C: Check> Labeler<C> {
     pub(crate) fn new(version: VersionType, mut series: SeriesReader, store: KVStore, topic: Topic, checks: Vec<C>) -> anyhow::Result<Self> {
         let base = Self::seek_start(&mut series, &topic)?;
+        // println!("new base: {:?}", base);
         let handler = HandleEvents::new(checks, base);
         Ok(Labeler { version, series, store, handler })
     }
@@ -34,18 +35,18 @@ impl<C: Check> Labeler<C> {
 
     pub(crate) async fn run(&mut self) -> anyhow::Result<()> {
         if !self.proc_new().await {
-            println!("Ended on first at {:?}", self.handler.events.front());
             return Ok(())
         } else {
+            println!("Ended on first at {:?}", self.handler.events.back());
             self.store_result().await?;
         }
 
         loop {
             self.handler.init_next();
             if !self.handler.is_done() && !self.proc_new().await {
-                println!("Ended at {:?}", self.handler.events.front());
                 return Ok(())
             } else {
+                println!("Ended at {:?}", self.handler.events.back());
                 self.store_result().await?;
             }
         }

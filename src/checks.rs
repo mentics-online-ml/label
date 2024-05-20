@@ -42,11 +42,11 @@ impl Check for CheckUp {
     fn track(&mut self, bid_change: f32, ask_change: f32) -> bool {
         if bid_change >= self.threshold_up {
             self.result = Some(true);
-            println!("CheckUp surpassed threshold_up {} > {}", bid_change, self.threshold_up);
+            // println!("{}: CheckUp surpassed threshold_up {} > {}", self.ordinal, bid_change, self.threshold_up);
             false
         } else if ask_change <= self.threshold_down {
             self.result = Some(false);
-            println!("CheckUp surpassed threshold_down {} < {}", ask_change, self.threshold_down);
+            // println!("{}: CheckUp surpassed threshold_down {} < {}", self.ordinal, ask_change, self.threshold_down);
             false
         } else {
             true
@@ -79,11 +79,11 @@ impl Check for CheckDown {
     fn track(&mut self, bid_change: f32, ask_change: f32) -> bool {
         if ask_change <= self.threshold_down {
             self.result = Some(true);
-            println!("CheckDown surpassed threshold_down {} < {}", ask_change, self.threshold_down);
+            // println!("{}: CheckDown surpassed threshold_down {} < {}: ({}, {})", self.ordinal, ask_change, self.threshold_down, bid_change, ask_change);
             false
         } else if bid_change >= self.threshold_up {
             self.result = Some(false);
-            println!("CheckDown surpassed threshold_up {} > {}", bid_change, self.threshold_up);
+            // println!("{}: CheckDown surpassed threshold_up {} > {}: ({}, {})", self.ordinal, bid_change, self.threshold_up, bid_change, ask_change);
             false
         } else {
             true

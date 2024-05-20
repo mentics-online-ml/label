@@ -25,9 +25,10 @@ impl<C: Check> HandleEvents<C> {
 
         // TODO: replace unwraps?
         // base is right before the back event
-        // assert!(self.events.back().unwrap().event_id == self.base.event_id);
-        self.base = self.events.pop_back().unwrap();
+        // assert!(self.events.front().unwrap().event_id == self.base.event_id);
+        self.base = self.events.pop_front().unwrap();
         self.start_ts = min(self.base.biddate, self.base.askdate);
+        // println!("init_next base: {:?}", self.base);
 
         self.checks.append(&mut self.complete);
         assert!(self.complete.is_empty());
@@ -48,9 +49,13 @@ impl<C: Check> HandleEvents<C> {
         // Quotes coming in here have already been validated
         let bid_change = rounded_diff(quote.bid, base.ask, 2);
         let ask_change = rounded_diff(quote.ask, base.bid, 2);
+        // println!("bid_change: {}, ask_change: {}", bid_change, ask_change);
 
         complete.extend(checks.extract_if(|check| {
             let should_continue = check.track(bid_change, ask_change);
+            // if !should_continue {
+            //     println!("{}: Check complete on event: {:?}", check.ordinal(), quote);
+            // }
             !should_continue
         }));
 
@@ -67,7 +72,7 @@ impl<C: Check> EventHandler<QuoteEvent> for HandleEvents<C> {
         }
 
         let should_continue = Self::proc_event(&mut self.checks, &mut self.complete, &self.base, &quote);
-        self.events.push_front(quote);
+        self.events.push_back(quote);
         should_continue
     }
 }
