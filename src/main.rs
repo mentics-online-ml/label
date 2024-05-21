@@ -10,8 +10,6 @@ use kv_store::*;
 use checks::*;
 use labeler::*;
 
-const CURRENT_VERSION: u32 = 1;
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let logger = StdoutLogger::boxed();

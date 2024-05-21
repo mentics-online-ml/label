@@ -84,12 +84,14 @@ impl<C: Check> Labeler<C> {
     }
 
     async fn store_result(&self) -> anyhow::Result<()> {
-        let labelled = Labelled {
+        let labeled = Labeled {
             event_id: self.handler.base.event_id,
             timestamp: now(),
+            partition: PARTITION,
+            offset: self.handler.base.offset,
             label: Self::make_label(&self.handler.complete)
         };
-        self.store.write_label(self.version, &labelled).await?;
+        self.store.labeled_store(self.version, &labeled).await?;
         Ok(())
     }
 
