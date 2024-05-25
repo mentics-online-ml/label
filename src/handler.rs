@@ -7,8 +7,8 @@ use series_store::*;
 use crate::checks::Check;
 
 pub(crate) struct HandleEvents<C> {
-    // TODO: maybe store this in UTC if we store a proper calendar of market times
     pub(crate) checks: Vec<C>,
+    // This is the event being labeled
     pub(crate) base: QuoteEvent,
     pub(crate) base_date: NaiveDate,
     pub(crate) events: VecDeque<QuoteEvent>,

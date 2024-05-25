@@ -9,21 +9,21 @@ use crate::checks::Check;
 
 pub(crate) struct Labeler<C> {
     version: VersionType,
-    series: SeriesReader,
+    pub series_events: SeriesReader,
+    series_label: SeriesWriter,
+    label_topic: Topic,
     store: KVStore,
-    // topic: Topic,
-    // checks: Vec<C>,
     handler: HandleEvents<C>,
 }
 
 impl<C: Check> Labeler<C> {
-    pub(crate) fn new(version: VersionType, mut series: SeriesReader, store: KVStore, topic: Topic, checks: Vec<C>) -> anyhow::Result<Self> {
-        series.subscribe(&topic, Offset::Beginning)?;
+    pub(crate) fn new(version: VersionType, mut series_events: SeriesReader, series_label: SeriesWriter, label_topic: Topic, store: KVStore, checks: Vec<C>) -> anyhow::Result<Self> {
+        // series.subscribe(&topic, Offset::Beginning)?;
         // TODO: get latest eventid from store and try to find that in series and start from there - NUM_SERIES
-        let base = Self::find_valid_sequence(&mut series)?;
+        let base = Self::find_valid_sequence(&mut series_events)?;
         // println!("new base: {:?}", base);
         let handler = HandleEvents::new(checks, base);
-        Ok(Labeler { version, series, store, handler })
+        Ok(Labeler { version, series_events, series_label, label_topic, store, handler })
     }
 
     fn find_valid_sequence(series: &mut SeriesReader) -> anyhow::Result<QuoteEvent> {
@@ -70,11 +70,15 @@ impl<C: Check> Labeler<C> {
                 println!("Ended at {:?}", self.handler.events.back());
                 self.store_result().await?;
             }
+            if true {
+                println!("TODO: debug stopping");
+                return Ok(());
+            };
         }
     }
 
     async fn proc_new(&mut self) -> bool {
-        self.series.for_each_msg(&mut self.handler).await;
+        self.series_events.for_each_msg(&mut self.handler).await;
         if !self.handler.is_done() {
             println!("Ran out of messages before labelling");
             false
@@ -84,14 +88,20 @@ impl<C: Check> Labeler<C> {
     }
 
     async fn store_result(&self) -> anyhow::Result<()> {
-        let labeled = Labeled {
-            event_id: self.handler.base.event_id,
-            timestamp: now(),
+        let event_id = self.handler.base.event_id;
+        let timestamp = now();
+        let labeled = LabelStored {
+            event_id,
+            timestamp,
             partition: PARTITION,
             offset: self.handler.base.offset,
             label: Self::make_label(&self.handler.complete)
         };
-        self.store.labeled_store(self.version, &labeled).await?;
+        self.store.label_store(&labeled).await?;
+        let event = LabelEvent::new(event_id, timestamp, labeled.label);
+        let json = serde_json::to_string(&event)?;
+        println!("Writing to label series {}", self.label_topic.name);
+        self.series_label.write(event_id, &self.label_topic, "key", timestamp, &json)?;
         Ok(())
     }
 
