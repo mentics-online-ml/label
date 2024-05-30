@@ -30,7 +30,7 @@ impl<C: Check> Labeler<C> {
         'outer: loop {
             println!("Attempting to find valid sequence");
             let ev0 = loop {
-                let ev = series.read_into()?;
+                let ev = series.read_into_event()?;
                 if event_in_trading_time(&ev) {
                     break ev;
                 }
@@ -39,7 +39,7 @@ impl<C: Check> Labeler<C> {
 
             let mut counter = SERIES_LENGTH;
             let ev1 = loop {
-                let ev = series.read_into()?;
+                let ev = series.read_into_event()?;
                 if !valid_time_and_date(&ev, date) {
                     // Start over from scratch because we went outside valid time
                     println!("Found invalid event for date {:?}, starting over: {:?}", date, ev);
@@ -90,18 +90,19 @@ impl<C: Check> Labeler<C> {
     async fn store_result(&self) -> anyhow::Result<()> {
         let event_id = self.handler.base.event_id;
         let timestamp = now();
+        let offset = self.handler.base.offset;
         let labeled = LabelStored {
             event_id,
             timestamp,
             partition: PARTITION,
-            offset: self.handler.base.offset,
+            offset,
             label: Self::make_label(&self.handler.complete)
         };
         self.store.label_store(&labeled).await?;
-        let event = LabelEvent::new(event_id, timestamp, labeled.label);
+        let event = LabelEvent::new(event_id, timestamp, offset, labeled.label);
         let json = serde_json::to_string(&event)?;
         println!("Writing to label series {}", self.label_topic.name);
-        self.series_label.write(event_id, &self.label_topic, "key", timestamp, &json)?;
+        self.series_label.write(event_id, &self.label_topic, "key", timestamp, &json).await?;
         Ok(())
     }
 
