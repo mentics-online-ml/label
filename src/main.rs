@@ -16,13 +16,6 @@ async fn main() -> anyhow::Result<()> {
     let events_topic = Topic::new("raw", "SPY", "quote");
     let series_events = SeriesReader::new_topic(logger, &events_topic)?;
 
-    series_events.print_status()?;
-    // // series_events.seek(&events_topic, 0, Offset::Beginning)?;
-    // let event: QuoteEvent = series_events.read_into()?;
-    // println!("event: {:?}", event);
-    // series_events.print_status()?;
-    // if true { return Ok(()) }
-
     let series_label = SeriesWriter::new();
     let store = KVStore::new(CURRENT_VERSION).await?;
 
@@ -38,9 +31,9 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let label_topic = Topic::new("label", "SPY", "notify");
-    let mut labeler = Labeler::new(CURRENT_VERSION, series_events, series_label, label_topic, store, checks)?;
+    let mut labeler = Labeler::new(series_events, series_label, label_topic, store, checks).await;
+    labeler.seek_start().await?;
     labeler.run().await?;
 
-    labeler.series_events.print_status()?;
     Ok(())
 }
