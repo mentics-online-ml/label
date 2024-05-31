@@ -63,7 +63,7 @@ impl<C: Check> Labeler<C> {
 
     pub(crate) async fn run(&mut self) -> anyhow::Result<()> {
         let mut count = 0;
-        let max = 1;
+        let max = 50;
         loop {
             self.series_events.for_each_msg(&mut self.handler).await;
 
