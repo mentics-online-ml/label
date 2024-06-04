@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.82"
+intervals = "2.1.0"
+chrono = { version = "0.4.38", default-features = false }
+serde_json = "1.0.117"
 # Trim down features for tokio later
 tokio = { version = "1.37.0", features = ["full"] }
 
@@ -16,6 +19,3 @@ shared-types = { path = "../shared-types" }
 series-store = { path = "../series-store" }
 # kv-store = { git = "https://github.com/mentics-online-ml/kv-store.git", branch = "main" }
 kv-store = { path = "../kv-store" }
-intervals = "2.1.0"
-serde_json = "1.0.117"
-chrono = "0.4.38"

@@ -1,3 +1,4 @@
+use series_proc::BaseHandler;
 use shared_types::*;
 use shared_types::util::*;
 use series_store::*;
@@ -6,22 +7,25 @@ use kv_store::*;
 use crate::handler::*;
 use crate::checks::Check;
 
-
-pub(crate) struct Labeler<C> {
+pub(crate) struct Labeler<C:Check> {
     series_events: SeriesReader,
     series_label: SeriesWriter,
-    label_topic: Topic,
     store: KVStore,
-    handler: HandleEvents<C>,
+    handler: BaseHandler<QuoteValues, QuoteEvent, HandleEvents<C>>,
+    // processor: HandleEvents<C>,
 }
 
 impl<C: Check> Labeler<C> {
-    pub(crate) async fn new(series_events: SeriesReader, series_label: SeriesWriter, label_topic: Topic, store: KVStore, checks: Vec<C>) -> Self {
+    pub(crate) async fn new(series_events: SeriesReader, series_label: SeriesWriter, store: KVStore, checks: Vec<C>) -> Self {
         // TODO: get latest eventid from store and try to find that in series and start from NUM_SERIES before that
         // let base = Self::find_valid_sequence(&mut series_events)?;
         // println!("new base: {:?}", base);
-        let handler = HandleEvents::new(checks);
-        Labeler { series_events, series_label, label_topic, store, handler }
+
+
+        let processor = HandleEvents::new(checks);
+        let handler: BaseHandler<QuoteValues, QuoteEvent, _> = BaseHandler::new(processor);
+
+        Labeler { series_events, series_label, store, handler }
     }
 
     pub(crate) async fn seek_start(&mut self) -> anyhow::Result<()> {
@@ -31,6 +35,16 @@ impl<C: Check> Labeler<C> {
         };
         println!("Moving series_events to offset: {}", max_offset_from);
         self.series_events.seek(max_offset_from + 1)
+    }
+
+    pub(crate) async fn reset_all_label_data(&self)  -> anyhow::Result<()> {
+        println!("**** RESETTING LABEL DATA ****");
+        // No need to reset offsets, it seeks each run
+        // println!("  resetting offsets");
+        // self.series_events.reset_offset()?;
+        println!("  deleting label data");
+        self.store.reset_label_data().await?;
+        Ok(())
     }
 
     // fn find_valid_sequence(series: &mut SeriesReader) -> anyhow::Result<QuoteEvent> {
@@ -61,57 +75,102 @@ impl<C: Check> Labeler<C> {
     //     }
     // }
 
-    pub(crate) async fn run(&mut self) -> anyhow::Result<()> {
+    pub(crate) async fn run(&mut self, run_count: usize) -> anyhow::Result<()> {
         let mut count = 0;
-        let max = 50;
+        let max = run_count;
         loop {
             self.series_events.for_each_msg(&mut self.handler).await;
 
-            if !self.handler.is_done() {
+            if !self.handler.proc.is_done() {
                 // I think this can never happen. Maybe put in type system?
                 println!("This shouldn't happen. Ran out of messages before labelling? Aborting.");
                 return Ok(())
             }
 
-            println!("Ended at {:?}", self.handler.ids());
-            self.store_result().await?;
+            println!("Finished reading new events at {:?}", self.handler.proc.ids(&self.handler.events));
 
-            count += 1;
-            if count >= max {
-                println!("TODO: debug stopping");
-                return Ok(());
-            }
+            // let labeled = Self::make_labeled(&self.handler.proc, &self.handler.events);
+            // Self::store_result(&self.store, &labeled).await?;
+            // Self::send_event(&self.series_label, &labeled).await?;
+
+            // count += 1;
+            // if count >= max {
+            //     println!("TODO: debug stopping");
+            //     return Ok(());
+            // }
 
             // Future events might satisfy the checks, so keep checking until we need to process more new events.
-            while self.handler.move_to_next() {
-                println!("move to next");
-                self.store_result().await?;
-                count += 1;
-                if count >= max {
-                    println!("TODO: debug stopping");
-                    return Ok(());
+            loop {
+                // {
+                    self.store_extra().await?;
+
+                    count += 1;
+                    if count >= max {
+                        println!("TODO: debug stopping");
+                        return Ok(());
+                    }
+                // }
+
+                self.handler.move_to_next();
+                let BaseHandler { ref mut proc, ref start_values, ref mut events } = self.handler;
+                if !proc.move_to_next(start_values, events) {
+                    break;
                 }
             }
+
+            // self.handler.move_to_next();
+            // let BaseHandler { ref start_values, ref mut events, ref mut proc } = self.handler;
+
+            // while proc.move_to_next(start_values, events) {
+            //     println!("move to next");
+
+            //     let labeled = Self::make_labeled(proc, events);
+            //     Self::store_result(&self.store, &labeled).await?;
+            //     Self::send_event(&self.series_label, &labeled).await?;
+
+            //     count += 1;
+            //     if count >= max {
+            //         println!("TODO: debug stopping");
+            //         return Ok(());
+            //     }
+            // }
         }
     }
 
-    async fn store_result(&self) -> anyhow::Result<()> {
+    async fn store_extra(&mut self) -> anyhow::Result<()> {
+        let BaseHandler { ref mut proc, ref mut events, .. } = self.handler;
+
+        let labeled = Self::make_labeled(proc, events);
+        Self::store_result(&self.store, &labeled).await?;
+        Self::send_event(&self.series_label, &labeled).await?;
+        Ok(())
+    }
+
+    async fn store_result(store: &KVStore, labeled: &LabelStored) -> anyhow::Result<()> {
+        store.label_store(labeled).await?;
+        Ok(())
+    }
+
+    async fn send_event(series: &SeriesWriter, labeled: &LabelStored) -> anyhow::Result<()> {
+        let event = LabelEvent::new(labeled.event_id, labeled.timestamp, labeled.offset_from, labeled.offset_to, labeled.label.clone());
+        let json = serde_json::to_string(&event)?;
+        println!("Writing event_id: {}, offsets: {} - {} to label series", event.event_id, event.offset_from, event.offset_to);
+        series.write_topic(event.event_id, event.timestamp, &json).await?;
+        Ok(())
+    }
+
+    fn make_labeled(proc: &HandleEvents<C>, events: &std::collections::VecDeque<QuoteEvent>) -> LabelStored {
         let timestamp = now();
-        let LabelIds { event_id, offset_from, offset_to } = self.handler.ids();
-        let labeled = LabelStored {
+        let ids = proc.ids(events);
+        let LabelIds { event_id, offset_from, offset_to } = ids;
+        LabelStored {
             event_id,
             timestamp,
             partition: PARTITION,
             offset_from,
             offset_to,
-            label: Self::make_label(&self.handler.complete)
-        };
-        self.store.label_store(&labeled).await?;
-        let event = LabelEvent::new(event_id, timestamp, offset_from, offset_to, labeled.label);
-        let json = serde_json::to_string(&event)?;
-        println!("Writing event_id: {event_id}, offset_from: {offset_from} to label series {}", self.label_topic.name);
-        self.series_label.write(event_id, &self.label_topic, "key", timestamp, &json).await?;
-        Ok(())
+            label: Self::make_label(&proc.complete)
+        }
     }
 
     fn make_label(complete: &[C]) -> Label {
@@ -123,3 +182,4 @@ impl<C: Check> Labeler<C> {
         lab
     }
 }
+

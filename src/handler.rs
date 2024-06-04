@@ -1,9 +1,6 @@
 use std::collections::VecDeque;
 
-use chrono::NaiveDate;
-use shared_types::{util::{event_in_trading_time, same_date, to_date}, *};
-use series_store::*;
-
+use shared_types::*;
 use crate::checks::Check;
 
 #[derive(Debug)]
@@ -13,46 +10,22 @@ pub struct LabelIds {
     pub offset_to: OffsetId,
 }
 
-struct Values {
-    bid: SeriesFloat,
-    ask: SeriesFloat
-}
-
-impl Default for Values {
-    fn default() -> Self {
-        Self { bid: 0.0, ask: 0.0 }
-    }
-}
-
-impl From<&QuoteEvent> for Values {
-    fn from(event: &QuoteEvent) -> Self {
-        Self { bid: event.bid, ask: event.ask }
-    }
-}
-
 pub(crate) struct HandleEvents<C> {
     pub(crate) checks: Vec<C>,
     pub(crate) complete: Vec<C>,
-    pub(crate) events: VecDeque<QuoteEvent>,
-    start_date: NaiveDate,
-    start_values: Values,
 }
 
 impl<C: Check> HandleEvents<C> {
     pub(crate) fn new(checks: Vec<C>) -> Self {
-        // let start_date = to_date(&first_event);
-        // let start_values = Values::from(&first_event);
-        // let mut events = VecDeque::new();
-        // events.push_back(first_event);
-        Self { checks, complete: Vec::new(), events: VecDeque::new(), start_date: NaiveDate::default(), start_values: Values::default() }
+        Self { checks, complete: Vec::new() }
     }
 
     pub(crate) fn is_done(&self) -> bool {
         self.checks.is_empty()
     }
 
-    pub(crate) fn ids(&self) -> LabelIds {
-        match (self.events.front(), self.events.back()) {
+    pub(crate) fn ids(&self, events: &VecDeque<QuoteEvent>) -> LabelIds {
+        match (events.front(), events.back()) {
             (Some(front), Some(back)) => LabelIds {
                 event_id: front.event_id, offset_from: front.offset, offset_to: back.offset
             },
@@ -61,26 +34,27 @@ impl<C: Check> HandleEvents<C> {
         }
     }
 
-    pub(crate) fn move_to_next(&mut self) -> bool {
+    pub(crate) fn move_to_next(&mut self, start_values: &QuoteValues, events: &mut VecDeque<QuoteEvent>) -> bool {
         assert!(self.checks.is_empty());
         self.reset_checks();
         // Move to the next start event
-        self.events.pop_front();
+        // handler.move_to_next();
+        // let new_start_values = &handler.start_values;
 
-        // TODO: replace unwrap?
-        let new_first = self.events.front().unwrap();
         // TODO: some way to do this idiom without having to clone or put code in place?
         // self.start_with(new_first);
-        self.start_values = Values::from(new_first);
-        self.start_date = to_date(new_first);
+        // let start_values = handler.start_values;
+        //  QuoteValues::convert_from(new_first);
 
-
-        let HandleEvents { ref mut checks, ref mut complete, ref mut events, ref start_values, .. } = self;
+        let HandleEvents { ref mut checks, ref mut complete } = self;
         for event in events.iter() {
             // Must call proc and not handler so the events are not pushed onto queue again
             Self::proc(start_values, event, checks, complete);
         }
+        // assert!(handler.events.front().unwrap().bid == new_start_values.bid);
+        // assert!(handler.events.front().unwrap().ask == new_start_values.ask);
         // We don't have to check inside the above loop because it couldn't possibly finish earlier (unless algo changes?)
+        // (self.is_done(), self.ids(events))
         self.is_done()
     }
 
@@ -133,20 +107,6 @@ impl<C: Check> HandleEvents<C> {
         }
     }
 
-    fn reset(&mut self) {
-        if self.events.is_empty() {
-            // If it's empty, we're already reset
-            return
-        }
-        self.reset_checks();
-        self.events.clear();
-    }
-
-    fn start_with(&mut self, event: &QuoteEvent) {
-        self.start_values = Values::from(event);
-        self.start_date = to_date(event);
-    }
-
     // fn start_with(&mut self, start_values: Values, start_date: NaiveDate) {
     //     self.start_values = start_values;
     //     self.start_date = start_date;
@@ -154,7 +114,7 @@ impl<C: Check> HandleEvents<C> {
     //     Values::from(event)
     // }
 
-    fn proc(start_values: &Values, event: &QuoteEvent, checks: &mut Vec<C>, complete: &mut Vec<C>) -> bool {
+    fn proc(start_values: &QuoteValues, event: &QuoteEvent, checks: &mut Vec<C>, complete: &mut Vec<C>) -> bool {
         // Quotes coming in here have already been validated
         let bid_change = rounded_diff(event.bid, start_values.ask, 2);
         let ask_change = rounded_diff(event.ask, start_values.bid, 2);
@@ -170,31 +130,40 @@ impl<C: Check> HandleEvents<C> {
 
         !checks.is_empty()
     }
+
+    fn process(&mut self, start_values: &QuoteValues, event: &QuoteEvent) -> bool {
+        let HandleEvents { ref mut checks, ref mut complete } = self;
+        Self::proc(start_values, event, checks, complete)
+    }
 }
 
-impl<C: Check> EventHandler<QuoteEvent> for HandleEvents<C> {
-    fn handle(&mut self, event: QuoteEvent) -> bool {
-        if !event_in_trading_time(&event) {
-            self.reset();
-            return true;
-        }
+impl<C: Check> Processor<VecDeque<QuoteEvent>,QuoteValues> for HandleEvents<C> {
+    fn process(&mut self, start_values: &QuoteValues, events: &mut VecDeque<QuoteEvent>) -> bool {
+        self.process(start_values, events.back().unwrap())
 
-        if self.events.is_empty() {
-            // It's the first event ever or after reset
-            self.start_with(&event);
-            self.events.push_back(event);
-            true
-        } else if !same_date(to_date(&event), self.start_date) {
-            self.start_with(&event);
-            self.events.push_back(event);
-            true
-        } else {
-            let HandleEvents { ref mut checks, ref mut complete, ref start_values, .. } = self;
-            // let should_continue = self.proc(&event);
-            let should_continue = Self::proc(start_values, &event, checks, complete);
-            self.events.push_back(event);
-            should_continue
-        }
+        // if !event_in_trading_time(&event) {
+        //     self.reset();
+        //     return true;
+        // }
+
+        // if self.events.is_empty() {
+        //     // It's the first event ever or after reset
+        //     self.start_with(&event);
+        //     self.events.push_back(event);
+        //     true
+        // } else if !same_date(event.to_date_or_0(), self.start_date) {
+        //     self.start_with(&event);
+        //     self.events.push_back(event);
+        //     true
+        // } else {
+        //     let should_continue = self.process(&event);
+        //     self.events.push_back(event);
+        //     should_continue
+        // }
+    }
+
+    fn reset(&mut self) {
+        self.reset_checks();
     }
 }
 

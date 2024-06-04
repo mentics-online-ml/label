@@ -4,6 +4,8 @@ mod checks;
 mod labeler;
 mod handler;
 
+use std::env;
+
 use shared_types::*;
 use series_store::*;
 use kv_store::*;
@@ -12,11 +14,28 @@ use labeler::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut count = 1000;
+    let mut reset = false;
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        let mut index = 1;
+        let mut arg = &args[index];
+        if arg == "reset" {
+            reset = true;
+            index += 1;
+        }
+        arg = &args[index];
+        if let Ok(arg_count) = arg.parse::<usize>() {
+            count = arg_count;
+        }
+    }
+
     let logger = StdoutLogger::boxed();
     let events_topic = Topic::new("raw", "SPY", "quote");
-    let series_events = SeriesReader::new_topic(logger, &events_topic)?;
+    let series_events = SeriesReader::new_topic(logger, "label", &events_topic)?;
 
-    let series_label = SeriesWriter::new();
+    let label_topic = Topic::new("label", "SPY", "notify");
+    let series_label = SeriesWriter::new(label_topic);
     let store = KVStore::new(CURRENT_VERSION).await?;
 
     let checks: Vec<Box<dyn Check>> = vec!(
@@ -30,10 +49,12 @@ async fn main() -> anyhow::Result<()> {
         Box::new(CheckUp::new(7, 0.40, -0.20)),
     );
 
-    let label_topic = Topic::new("label", "SPY", "notify");
-    let mut labeler = Labeler::new(series_events, series_label, label_topic, store, checks).await;
+    let mut labeler = Labeler::new(series_events, series_label, store, checks).await;
+    if reset {
+        labeler.reset_all_label_data().await?;
+    }
     labeler.seek_start().await?;
-    labeler.run().await?;
+    labeler.run(count).await?;
 
     Ok(())
 }
