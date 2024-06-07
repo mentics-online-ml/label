@@ -154,7 +154,8 @@ impl<C: Check> Labeler<C> {
     async fn send_event(series: &SeriesWriter, labeled: &LabelStored) -> anyhow::Result<()> {
         let event = LabelEvent::new(labeled.event_id, labeled.timestamp, labeled.offset_from, labeled.offset_to, labeled.label.clone());
         let json = serde_json::to_string(&event)?;
-        println!("Writing event_id: {}, offsets: {} - {} to label series", event.event_id, event.offset_from, event.offset_to);
+        // println!("Writing event_id: {}, offsets: {} - {} to label series", event.event_id, event.offset_from, event.offset_to);
+        println!("Writing label: {:?}", event);
         series.write_topic(event.event_id, event.timestamp, &json).await?;
         Ok(())
     }
@@ -166,7 +167,6 @@ impl<C: Check> Labeler<C> {
         LabelStored {
             event_id,
             timestamp,
-            partition: PARTITION,
             offset_from,
             offset_to,
             label: Self::make_label(&proc.complete)
