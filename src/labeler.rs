@@ -1,8 +1,12 @@
+use chrono_util::{now, to_datetime};
+use data_info::LabelType;
+use label::LabelEvent;
+use quote::{QuoteEvent, QuoteValues};
 use series_proc::BaseHandler;
 use shared_types::*;
-use shared_types::util::*;
 use series_store::*;
 use kv_store::*;
+use stored::LabelStored;
 
 use crate::handler::*;
 use crate::checks::Check;
@@ -29,9 +33,13 @@ impl<C: Check> Labeler<C> {
     }
 
     pub(crate) async fn seek_start(&mut self) -> anyhow::Result<()> {
+        // TODO: this can be simplified
         let max_offset_from = match self.store.label_max().await?.map(|lab| lab.offset_from) {
             Some(offset_from) => offset_from,
-            None => self.series_events.offset_from_oldest(SERIES_LENGTH)?
+            // This was only to avoid error on receiving label events that would be too early to process downstream,
+            // but we should handle those cases gracefully anyway.
+            // None => self.series_events.offset_from_oldest(SERIES1_LENGTH)?
+            None => self.series_events.offset_from_oldest(0)?
         };
         println!("Moving series_events to offset: {}", max_offset_from);
         self.series_events.seek(max_offset_from + 1)
@@ -58,7 +66,7 @@ impl<C: Check> Labeler<C> {
     //         };
     //         let date = to_date(&ev0);
 
-    //         let mut counter = SERIES_LENGTH;
+    //         let mut counter = SERIES1_LENGTH;
     //         let ev1 = loop {
     //             let ev = series.read_into_event()?;
     //             if !valid_time_and_date(&ev, date) {
@@ -152,10 +160,10 @@ impl<C: Check> Labeler<C> {
     }
 
     async fn send_event(series: &SeriesWriter, labeled: &LabelStored) -> anyhow::Result<()> {
-        let event = LabelEvent::new(labeled.event_id, labeled.timestamp, labeled.offset_from, labeled.offset_to, labeled.label.clone());
+        let event = LabelEvent::new(labeled.event_id, labeled.timestamp, labeled.offset_from, labeled.offset_to, labeled.label);
         let json = serde_json::to_string(&event)?;
         // println!("Writing event_id: {}, offsets: {} - {} to label series", event.event_id, event.offset_from, event.offset_to);
-        println!("Writing label: {:?}", event);
+        println!("Writing label for {}: {:?}", to_datetime(event.timestamp), event);
         series.write_topic(event.event_id, event.timestamp, &json).await?;
         Ok(())
     }
@@ -173,11 +181,11 @@ impl<C: Check> Labeler<C> {
         }
     }
 
-    fn make_label(complete: &[C]) -> Label {
+    fn make_label(complete: &[C]) -> LabelType {
         // let value = [ModelFloat; NUM_CHECKS];
-        let mut lab = Label::default();
+        let mut lab = LabelType::default();
         for check in complete.iter() {
-            lab.value[check.ordinal() as usize] = if check.result() { 1.0 } else { 0.0 };
+            lab[check.ordinal() as usize] = if check.result() { 1.0 } else { 0.0 };
         }
         lab
     }

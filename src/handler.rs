@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use quote::{QuoteEvent, QuoteValues};
+use series_proc::Processor;
 use shared_types::*;
 use crate::checks::Check;
 

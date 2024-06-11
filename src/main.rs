@@ -6,6 +6,7 @@ mod handler;
 
 use std::env;
 
+use data_info::CURRENT_VERSION;
 use shared_types::*;
 use series_store::*;
 use kv_store::*;
@@ -30,9 +31,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let logger = StdoutLogger::boxed();
     let events_topic = Topic::new("raw", "SPY", "quote");
-    let series_events = SeriesReader::new_topic(logger, "label", &events_topic)?;
+    let series_events = SeriesReader::new_topic("label", &events_topic)?;
 
     let label_topic = Topic::new("label", "SPY", "notify");
     let series_label = SeriesWriter::new(label_topic);
