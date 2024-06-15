@@ -155,7 +155,7 @@ impl<C: Check> Labeler<C> {
     }
 
     async fn store_result(store: &KVStore, labeled: &LabelStored) -> anyhow::Result<()> {
-        store.label_store(labeled).await?;
+        store.store_label(labeled).await?;
         Ok(())
     }
 
