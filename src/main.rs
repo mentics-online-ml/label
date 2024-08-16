@@ -4,7 +4,7 @@ mod checks;
 mod labeler;
 mod handler;
 
-use std::env;
+use std::{env, io::Write};
 
 use data_info::CURRENT_VERSION;
 use shared_types::*;
@@ -30,13 +30,19 @@ async fn main() -> anyhow::Result<()> {
             count = arg_count;
         }
     }
+    // print!("arg 1 : {}", args[1]);
 
+    std::io::stdout().flush()?;
     let events_topic = Topic::new("raw", "SPY", "quote");
+    std::io::stdout().flush()?;
     let series_events = SeriesReader::new_topic("label", &events_topic)?;
+    std::io::stdout().flush()?;
 
     let label_topic = Topic::new("label", "SPY", "notify");
     let series_label = SeriesWriter::new(label_topic);
+    print!("before` store");
     let store = KVStore::new(CURRENT_VERSION).await?;
+    print!("after store");
 
     let checks: Vec<Box<dyn Check>> = vec!(
         Box::new(CheckDown::new(0, -0.40, 0.20)),
